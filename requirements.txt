@@ -1,3 +1,4 @@
-fastapi
-uvicorn
-pydantic
+Flask
+requests
+yt-dlp
+gunicorn
