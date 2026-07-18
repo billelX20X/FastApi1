@@ -1,10 +1,9 @@
 import os
 import tempfile
-
 import uuid
 import time
 import requests
-from flask import Flask ,request, jsonify
+from flask import Flask, request, jsonify
 import yt_dlp
 
 app = Flask(__name__)
@@ -12,16 +11,24 @@ app = Flask(__name__)
 # This will be securely set in your hosting provider's dashboard
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-
-
 @app.route('/api/analyze-social-video', methods=['POST'])
 def analyze_social_video():
     data = request.json
     url = data.get('url')
-    prompt = data.get('prompt', 'Describe what is happening in this video in detail.')
 
     if not url:
         return jsonify({"error": "URL is required"}), 400
+
+    # Hardcoded prompt to enforce the specific JSON structure for your Expo app
+    prompt = """Analyze this video and return a strictly formatted JSON object summarizing its content.
+    The JSON must match this exact structure:
+    {
+        "title": "A short, catchy title for the video",
+        "description": "A concise, engaging description of what happens in the video.",
+        "image": "Return a generic placeholder image URL, or leave blank if none applies.",
+        "badgeText": "A single word categorizing the video (e.g., 'Experiment', 'Tutorial', 'Review', 'DIY')",
+        "tags": ["Tag1", "Tag2"] 
+    }"""
 
     # Create a safe base path in the system's temp directory
     base_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex)
@@ -81,7 +88,7 @@ def analyze_social_video():
             if file_state == 'FAILED':
                 return jsonify({'error': 'Video processing failed on Gemini servers.'}), 500
 
-        # 4. Generate the actual content using 1.5-flash
+        # 4. Generate the actual content using your specified model
         gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{
@@ -89,7 +96,10 @@ def analyze_social_video():
                     {"fileData": {"mimeType": mime_type, "fileUri": file_uri}},
                     {"text": prompt}
                 ]
-            }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json" # Forces Gemini to output raw JSON
+            }
         }
 
         gen_res = requests.post(gen_url, headers={'Content-Type': 'application/json'}, json=payload).json()
@@ -99,7 +109,12 @@ def analyze_social_video():
             return jsonify({'error': 'Gemini API Error', 'details': gen_res}), 400
 
         text = gen_res['candidates'][0]['content']['parts'][0]['text']
-        return jsonify({'result': text})
+        
+        # We can parse it and return it as a proper JSON response rather than a stringified JSON
+        import json
+        parsed_result = json.loads(text)
+        
+        return jsonify(parsed_result)
 
     except Exception as e:
         return jsonify({"error": f"Failed to process video: {str(e)}"}), 500
@@ -108,4 +123,4 @@ def analyze_social_video():
         # 6. CRITICAL: Cleanup the actual file that was downloaded
         if actual_file_path and os.path.exists(actual_file_path):
             os.remove(actual_file_path)
-        
+
