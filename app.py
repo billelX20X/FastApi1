@@ -23,10 +23,10 @@ def analyze_social_video():
     prompt = """Analyze this video and return a strictly formatted JSON object summarizing its content.
     The JSON must match this exact structure:
     {
-        "title": "A short, catchy title for the video",
-        "description": "A concise, engaging description of what happens in the video.",
-        "image": "Return a generic placeholder image URL, or leave blank if none applies.",
-        "badgeText": "A single word categorizing the video (e.g., 'Experiment', 'Tutorial', 'Review', 'DIY')",
+        "title": "the name of the plant if you cloud get",
+        "description": "A concise, engaging description of the plant in the video.",
+        "image": "Return a placeholder image URL of the plant , or leave blank if you couldnt .",
+        "badgeText": "A single word categorizing the  plant in the video ",
         "tags": ["Tag1", "Tag2"] 
     }"""
 
