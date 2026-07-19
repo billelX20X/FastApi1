@@ -3,6 +3,7 @@ import tempfile
 import uuid
 import time
 import requests
+import json
 from flask import Flask, request, jsonify
 import yt_dlp
 
@@ -19,13 +20,12 @@ def analyze_social_video():
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
-    # Hardcoded prompt to enforce the specific JSON structure for your Expo app
+    # 1. MODIFIED PROMPT: Removed the 'image' requirement from the AI's job
     prompt = """Analyze this video and return a strictly formatted JSON object summarizing its content.
     The JSON must match this exact structure:
     {
         "title": "the name of the plant if you cloud get",
         "description": "A concise, engaging description of the plant in the video.",
-        "image": "Return a placeholder image URL of the plant , or leave blank if you couldnt .",
         "badgeText": "A single word categorizing the  plant in the video ",
         "tags": ["Tag1", "Tag2"] 
     }"""
@@ -33,34 +33,34 @@ def analyze_social_video():
     # Create a safe base path in the system's temp directory
     base_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex)
     actual_file_path = None
+    thumbnail_url = "" # Initialize empty thumbnail URL
 
     try:
-        # 1. Download video and let yt-dlp determine the correct file extension
+        # Download video and let yt-dlp determine the correct file extension
         ydl_opts = {
             'quiet': True,
-            # Force mp4 if possible, fallback to best available
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'noplaylist': True,
-            'outtmpl': f"{base_path}.%(ext)s" # yt-dlp will replace %(ext)s with mp4 or webm
+            'outtmpl': f"{base_path}.%(ext)s" 
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            # This is the magic key: get the EXACT filename yt-dlp saved it as
             actual_file_path = ydl.prepare_filename(info)
+            
+            # 2. GRAB THE THUMBNAIL: Get the official thumbnail URL from the social platform
+            thumbnail_url = info.get('thumbnail', '')
 
         if not actual_file_path or not os.path.exists(actual_file_path):
             return jsonify({"error": "Failed to download video file locally."}), 500
 
-        # Check if the file is empty (prevents the INVALID_ARGUMENT error)
         if os.path.getsize(actual_file_path) == 0:
             return jsonify({"error": "Downloaded video is empty."}), 500
 
-        # Determine the correct MIME type based on the actual downloaded file
         ext = actual_file_path.split('.')[-1].lower()
         mime_type = 'video/webm' if ext == 'webm' else 'video/mp4'
 
-        # 2. Upload the file to Gemini
+        # Upload the file to Gemini
         upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={GEMINI_API_KEY}"
         headers = {
             'X-Goog-Upload-Protocol': 'raw',
@@ -78,7 +78,7 @@ def analyze_social_video():
         file_uri = upload_data['file']['uri']
         file_name = upload_data['file']['name']
 
-        # 3. Wait for Gemini to process the video
+        # Wait for Gemini to process the video
         file_state = upload_data['file']['state']
         while file_state == 'PROCESSING':
             time.sleep(3)
@@ -88,8 +88,8 @@ def analyze_social_video():
             if file_state == 'FAILED':
                 return jsonify({'error': 'Video processing failed on Gemini servers.'}), 500
 
-        # 4. Generate the actual content using your specified model
-        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
+        # Generate the actual content using your specified model
+        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{
                 "parts": [
@@ -98,21 +98,22 @@ def analyze_social_video():
                 ]
             }],
             "generationConfig": {
-                "responseMimeType": "application/json" # Forces Gemini to output raw JSON
+                "responseMimeType": "application/json"
             }
         }
 
         gen_res = requests.post(gen_url, headers={'Content-Type': 'application/json'}, json=payload).json()
 
-        # 5. Return the result safely
         if 'error' in gen_res:
             return jsonify({'error': 'Gemini API Error', 'details': gen_res}), 400
 
         text = gen_res['candidates'][0]['content']['parts'][0]['text']
         
-        # We can parse it and return it as a proper JSON response rather than a stringified JSON
-        import json
+        # Parse the JSON returned by Gemini
         parsed_result = json.loads(text)
+        
+        # 3. INJECT THE IMAGE: Add the thumbnail URL to the final output expected by your app
+        parsed_result['image'] = thumbnail_url
         
         return jsonify(parsed_result)
 
@@ -120,7 +121,6 @@ def analyze_social_video():
         return jsonify({"error": f"Failed to process video: {str(e)}"}), 500
         
     finally:
-        # 6. CRITICAL: Cleanup the actual file that was downloaded
+        # CRITICAL: Cleanup the actual file that was downloaded
         if actual_file_path and os.path.exists(actual_file_path):
             os.remove(actual_file_path)
-
