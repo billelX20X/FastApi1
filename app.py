@@ -89,7 +89,7 @@ def analyze_social_video():
                 return jsonify({'error': 'Video processing failed on Gemini servers.'}), 500
 
         # Generate the actual content using your specified model
-        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{
                 "parts": [
