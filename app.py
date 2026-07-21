@@ -20,14 +20,21 @@ def analyze_social_video():
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
-    # 1. MODIFIED PROMPT: Removed the 'image' requirement from the AI's job
-    prompt = """Analyze this video and return a strictly formatted JSON object summarizing its content.
+    # 1. MODIFIED PROMPT: Updated to match the React Native PlantDetailScreen structure
+    prompt = """Analyze this video and return a strictly formatted JSON object summarizing the plant featured in it.
     The JSON must match this exact structure:
     {
-        "title": "the name of the plant if you cloud get",
-        "description": "A concise, engaging description of the plant in the video.",
-        "badgeText": "A single word categorizing the  plant in the video ",
-        "tags": ["Tag1", "Tag2"] 
+        "title": "The common name of the plant (e.g., 'Fiddle Leaf Fig')",
+        "subtitle": "The scientific name of the plant (e.g., 'Ficus lyrata')",
+        "badgeText": "A short category description (e.g., 'Tropical Evergreen', 'Succulent', 'Air Plant')",
+        "description": "A detailed, engaging paragraph about this plant, its characteristics, and why it's popular.",
+        "care": {
+            "light": "Light requirement (e.g., 'Bright Indirect')",
+            "water": "Water requirement (e.g., 'Every 7-10 days')",
+            "soil": "Soil type (e.g., 'Well-Draining')",
+            "fertilizer": "Fertilizer frequency (e.g., 'Once monthly')"
+        },
+        "expertTip": "One useful, actionable expert tip for taking care of this specific plant."
     }"""
 
     # Create a safe base path in the system's temp directory
