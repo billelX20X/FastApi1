@@ -49,7 +49,7 @@ def analyze_video():
 
     # 3. Pass the direct video link to the Gemini API
     try:
-        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
+        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key={GEMINI_API_KEY}"
         
         gemini_payload = {
             "contents": [
