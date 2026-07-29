@@ -35,6 +35,9 @@ def create_lib_card():
         # Parse based on the provided SocialFetch structure
         media_info = sf_data.get('data', {}).get('media', {})
         
+        # Extract the thumbnail URL here!
+        thumbnail_url = media_info.get('thumbnailUrl', '') 
+        
         # Try unwatermarked first, fallback to standard downloadUrl
         direct_video_link = media_info.get('downloadWithoutWatermarkUrl') or media_info.get('downloadUrl')
         
@@ -49,34 +52,39 @@ def create_lib_card():
 
     # 3. Pass the direct video link to the Gemini API
     try:
-        gemini_endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=){GEMINI_API_KEY}"
+        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
         
-        prompt_text = """
+        # We use an f-string to inject the thumbnail_url. 
+        # The JSON curly brackets are doubled {{ }} so Python ignores them.
+        prompt_text = f"""
         Watch this video about a plant and extract the information discussed. 
-        Return ONLY a valid JSON object matching this exact structure:
-        {
-          "hero": {
-            "imageUrl": "Provide a high-quality image URL (unsplash preferred)",
+        Return ONLY a valid JSON object matching this exact structure.
+        
+        For the hero imageUrl, use EXACTLY this link: {thumbnail_url}
+
+        {{
+          "hero": {{
+            "imageUrl": "{thumbnail_url}",
             "badgeText": "Short 2-3 word catchy trait (e.g., Tender & Gorgeous)",
             "commonName": "Common name of the plant",
             "scientificName": "Botanical name"
-          },
-          "careRequirements": {
+          }},
+          "careRequirements": {{
             "light": "Short text (e.g., Bright Indirect)",
             "water": "Short text (e.g., Every 7 - 10 days)",
             "soil": "Short text (e.g., Well-Draining)",
             "fertilizer": "Short text (e.g., Once monthly)",
             "growingZone": "Short text (e.g., Zone 9b)"
-          },
-          "contextualAlert": {
+          }},
+          "contextualAlert": {{
             "temperature": "Mock temperature string (e.g., 94° today.)",
             "message": "1 sentence explaining how to adjust care for this temp."
-          },
-          "about": {
+          }},
+          "about": {{
             "description": "A 2-3 sentence engaging description of the plant.",
             "expertTip": "One highly actionable, specific tip for this plant."
-          }
-        }
+          }}
+        }}
         """
 
         gemini_payload = {
@@ -103,11 +111,10 @@ def create_lib_card():
             gemini_endpoint,
             headers={"Content-Type": "application/json"},
             json=gemini_payload,
-            timeout=30 # Increased timeout since Gemini might take time to process video
+            timeout=30
         )
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
-
         # 4. Return the Gemini response and some basic video info back to the client
         video_metadata = sf_data.get('data', {}).get('video', {})
         
