@@ -12,8 +12,8 @@ app = Flask(__name__)
 SOCIALFETCH_API_KEY = os.environ.get("SOCIAL_FEACH_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-@app.route('/analyze-video', methods=['POST'])
-def analyze_video():
+@app.route('/create_lib_card', methods=['POST'])
+def create_lib_card():
     # 1. Get the original URL from the incoming request
     data = request.get_json()
     if not data or 'url' not in data:
@@ -49,14 +49,42 @@ def analyze_video():
 
     # 3. Pass the direct video link to the Gemini API
     try:
-        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
+        gemini_endpoint = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=){GEMINI_API_KEY}"
         
+        prompt_text = """
+        Watch this video about a plant and extract the information discussed. 
+        Return ONLY a valid JSON object matching this exact structure:
+        {
+          "hero": {
+            "imageUrl": "Provide a high-quality image URL (unsplash preferred)",
+            "badgeText": "Short 2-3 word catchy trait (e.g., Tender & Gorgeous)",
+            "commonName": "Common name of the plant",
+            "scientificName": "Botanical name"
+          },
+          "careRequirements": {
+            "light": "Short text (e.g., Bright Indirect)",
+            "water": "Short text (e.g., Every 7 - 10 days)",
+            "soil": "Short text (e.g., Well-Draining)",
+            "fertilizer": "Short text (e.g., Once monthly)",
+            "growingZone": "Short text (e.g., Zone 9b)"
+          },
+          "contextualAlert": {
+            "temperature": "Mock temperature string (e.g., 94° today.)",
+            "message": "1 sentence explaining how to adjust care for this temp."
+          },
+          "about": {
+            "description": "A 2-3 sentence engaging description of the plant.",
+            "expertTip": "One highly actionable, specific tip for this plant."
+          }
+        }
+        """
+
         gemini_payload = {
             "contents": [
                 {
                     "parts": [
                         {
-                            "text": "Watch this video and tell me the main topic, summarize it in 5 bullet points, and mention any important people, places, or products discussed."
+                            "text": prompt_text
                         },
                         {
                             "file_data": {
@@ -65,7 +93,10 @@ def analyze_video():
                         }
                     ]
                 }
-            ]
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json"
+            }
         }
 
         gemini_response = requests.post(
