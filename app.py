@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-import json  # Added import for JSON parsing
+import json
 from dotenv import load_dotenv
 
 # Load environment variables from the .env file
@@ -22,7 +22,7 @@ def create_lib_card():
     
     original_url = data['url']
 
-    # 2. Call SocialFetch API to get the direct video link and thumbnail
+    # 2. Call SocialFetch API to get the direct video link
     try:
         socialfetch_url = f"https://api.socialfetch.dev/v1/tiktok/videos?url={original_url}"
         sf_response = requests.get(
@@ -36,8 +36,8 @@ def create_lib_card():
         # Parse based on the provided SocialFetch structure
         media_info = sf_data.get('data', {}).get('media', {})
         
-        # Extract the thumbnail URL directly from SocialFetch
-        thumbnail_url = media_info.get('thumbnailUrl', '')
+        # Extract the thumbnail URL here!
+        thumbnail_url = media_info.get('thumbnailUrl', '') 
         
         # Try unwatermarked first, fallback to standard downloadUrl
         direct_video_link = media_info.get('downloadWithoutWatermarkUrl') or media_info.get('downloadUrl')
@@ -55,8 +55,8 @@ def create_lib_card():
     try:
         gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
         
-        # Using an f-string to inject the thumbnail_url. 
-        # JSON curly brackets are doubled {{ }} so Python ignores them.
+        # We use an f-string to inject the thumbnail_url. 
+        # The JSON curly brackets are doubled {{ }} so Python ignores them.
         prompt_text = f"""
         Watch this video about a plant and extract the information discussed. 
         Return ONLY a valid JSON object matching this exact structure.
@@ -112,32 +112,42 @@ def create_lib_card():
             gemini_endpoint,
             headers={"Content-Type": "application/json"},
             json=gemini_payload,
-            timeout=30 # Increased timeout since Gemini might take time to process video
+            timeout=30
         )
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
-
-        # 4. Extract and parse the clean JSON from Gemini
+        
+        # 4. Extract and clean the plant JSON string from Gemini's response
         try:
-            # Navigate through Gemini's response structure to get the text string
-            generated_text = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
+            raw_text = gemini_data['candidates'][0]['content']['parts'][0]['text']
             
-            # Convert the string into a real Python dictionary
-            plant_data = json.loads(generated_text)
+            # Gemini sometimes wraps JSON in markdown code blocks. Strip them if they exist.
+            raw_text = raw_text.strip()
+            if raw_text.startswith('```json'):
+                raw_text = raw_text[7:]
+            elif raw_text.startswith('```'):
+                raw_text = raw_text[3:]
+            if raw_text.endswith('```'):
+                raw_text = raw_text[:-3]
+                
+            # Parse the string back into a Python dictionary
+            plant_data = json.loads(raw_text.strip())
+            
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             return jsonify({
-                "error": "Failed to parse Gemini output",
-                "raw_gemini_data": gemini_data
+                "error": "Failed to parse the plant data from Gemini",
+                "details": str(e),
+                "raw_gemini_output": gemini_data
             }), 500
 
-        # 5. Return the clean data back to the client
+        # 5. Return the final, clean response back to the client
         video_metadata = sf_data.get('data', {}).get('video', {})
         
         return jsonify({
             "status": "success",
             "video_id": video_metadata.get('id'),
             "caption": video_metadata.get('caption'),
-            "plant_info": plant_data
+            "plant_data": plant_data
         }), 200
 
     except requests.exceptions.RequestException as e:
