@@ -12,7 +12,13 @@ app = Flask(__name__)
 # Configure your API keys here or use environment variables
 SOCIALFETCH_API_KEY = os.environ.get("SOCIAL_FEACH_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+#################################################################################################
+@app.route("/", methods=["GET"])
+def test():
+    return "api is working " 200
 
+
+##################################################################################################
 @app.route('/create_lib_card', methods=['POST'])
 def create_lib_card():
     # 1. Get the original URL from the incoming request
