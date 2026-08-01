@@ -284,3 +284,118 @@ def create_lib_card_image():
             "error": f"Failed to generate content from Gemini: {str(e)}",
             "gemini_raw_error": gemini_response.text if 'gemini_response' in locals() else None
         }), 502
+
+
+
+
+
+##################################################################################################
+
+@app.route('/check_plant_status', methods=['POST'])
+def check_plant_status():
+    # 1. Get the uploaded image from the incoming form-data request
+    if 'image' not in request.files:
+        return jsonify({"error": "Please provide an 'image' file in the form data"}), 400
+
+    image_file = request.files['image']
+    if image_file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    # Read the file and encode it to base64 for Gemini
+    try:
+        image_bytes = image_file.read()
+        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+        mime_type = image_file.mimetype
+    except Exception as e:
+        return jsonify({"error": f"Failed to process image file: {str(e)}"}), 500
+
+    # 2. Pass the base64 image data to the Gemini API
+    try:
+        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
+
+        prompt_text = """
+        Analyze this image of a plant and assess its current health status
+        based on visible signs such as leaf color, wilting, spotting, pests,
+        or drooping. Return ONLY a valid JSON object matching this exact
+        structure, with no other text.
+
+        {
+          "status": "Healthy or Needs Attention"
+        }
+        """
+
+        gemini_payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt_text},
+                        {
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": encoded_image
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "status": {
+                            "type": "STRING",
+                            "enum": ["Healthy", "Needs Attention"]
+                        }
+                    },
+                    "required": ["status"]
+                }
+            }
+        }
+
+        gemini_response = requests.post(
+            gemini_endpoint,
+            headers={"Content-Type": "application/json"},
+            json=gemini_payload,
+            timeout=30
+        )
+        gemini_response.raise_for_status()
+        gemini_data = gemini_response.json()
+
+        # 3. Extract and validate the status from Gemini's response
+        try:
+            raw_text = gemini_data['candidates'][0]['content']['parts'][0]['text']
+
+            raw_text = raw_text.strip()
+            if raw_text.startswith('```json'):
+                raw_text = raw_text[7:]
+            elif raw_text.startswith('```'):
+                raw_text = raw_text[3:]
+            if raw_text.endswith('```'):
+                raw_text = raw_text[:-3]
+
+            status_data = json.loads(raw_text.strip())
+            status = status_data.get('status', '').strip()
+
+            # Hard safety net in case the model still drifts off-list
+            if status not in ('Healthy', 'Needs Attention'):
+                status = 'Needs Attention'
+
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            return jsonify({
+                "error": "Failed to parse the status from Gemini",
+                "details": str(e),
+                "raw_gemini_output": gemini_data
+            }), 500
+
+        # 4. Return the final response
+        return jsonify({
+            "status": "success",
+            "plant_status": status
+        }), 200
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": f"Failed to generate content from Gemini: {str(e)}",
+            "gemini_raw_error": gemini_response.text if 'gemini_response' in locals() else None
+        }), 502
