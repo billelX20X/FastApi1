@@ -15,8 +15,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 #################################################################################################
 @app.route("/", methods=["GET"])
 def test():
-    return "api is working " 200
-
+    return jsonify({"message": "API is working"}), 200
 
 ##################################################################################################
 @app.route('/create_lib_card', methods=['POST'])
