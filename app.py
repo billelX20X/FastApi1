@@ -18,7 +18,7 @@ def test():
     return jsonify({"message": "API is working"}), 200
 
 ##################################################################################################
-@app.route('/create_lib_card', methods=['POST'])
+@app.route('/create_lib_card_from_social_media_url', methods=['POST'])
 def create_lib_card():
     # 1. Get the original URL from the incoming request
     data = request.get_json()
@@ -165,7 +165,7 @@ def create_lib_card():
 ##################################################################################################
 
 
-@app.route('/create_lib_card_image', methods=['POST'])
+@app.route('/create_lib_card_from_image_file', methods=['POST'])
 def create_lib_card_image():
     # 1. Get the uploaded image from the incoming form-data request
     if 'image' not in request.files:
