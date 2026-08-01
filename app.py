@@ -3,6 +3,7 @@ import requests
 import os
 import json
 from dotenv import load_dotenv
+import base64
 
 # Load environment variables from the .env file
 load_dotenv()
