@@ -72,7 +72,7 @@ def create_lib_card():
           }},
           "careRequirements": {{
             "light": "Short text (e.g., Bright Indirect)",
-            "water": "Short text (e.g., Every 7 - 10 days)",
+            "water": "Short text (should be like this form: Every 7 - 10 days)",
             "soil": "Short text (e.g., Well-Draining)",
             "fertilizer": "Short text (e.g., Once monthly)",
             "growingZone": "Short text (e.g., Zone 9b)"
