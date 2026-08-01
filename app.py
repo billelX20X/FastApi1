@@ -163,6 +163,8 @@ def create_lib_card():
 
 
 ##################################################################################################
+
+
 @app.route('/create_lib_card_image', methods=['POST'])
 def create_lib_card_image():
     # 1. Get the uploaded image from the incoming form-data request
