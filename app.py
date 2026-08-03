@@ -533,3 +533,149 @@ def generate_recovery_plan():
             "error": f"Failed to generate content from Gemini: {str(e)}",
             "gemini_raw_error": gemini_response.text if 'gemini_response' in locals() else None
         }), 502
+
+        
+###########################################################################################################
+
+@app.route('/create_diy_project_from_social_media_url', methods=['POST'])
+def create_diy_project():
+    # 1. Get the original social media URL from request body
+    data = request.get_json()
+    if not data or 'url' not in data:
+        return jsonify({"error": "Please provide a 'url' in the JSON body"}), 400
+    
+    original_url = data['url']
+
+    # 2. Call SocialFetch API to get the video link and thumbnail
+    try:
+        socialfetch_url = f"https://api.socialfetch.dev/v1/tiktok/videos?url={original_url}"
+        sf_response = requests.get(
+            socialfetch_url,
+            headers={"x-api-key": SOCIALFETCH_API_KEY},
+            timeout=10
+        )
+        sf_response.raise_for_status()
+        sf_data = sf_response.json()
+        
+        media_info = sf_data.get('data', {}).get('media', {})
+        thumbnail_url = media_info.get('thumbnailUrl', '') 
+        direct_video_link = media_info.get('downloadWithoutWatermarkUrl') or media_info.get('downloadUrl')
+        
+        if not direct_video_link:
+            return jsonify({
+                "error": "Could not extract direct video link from SocialFetch response", 
+                "socialfetch_raw": sf_data
+            }), 500
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Failed to fetch data from SocialFetch: {str(e)}"}), 502
+
+    # 3. Pass video link to Gemini to extract DIY Project structure
+    try:
+        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
+        
+        prompt_text = """
+        Watch this DIY / step-by-step project video carefully. 
+        Extract all the required materials and the step-by-step instructions shown or described in the video.
+        
+        For each material, choose a valid, standard Feather icon string that best represents it 
+        (e.g., 'scissors', 'droplet', 'square', 'box', 'tool', 'coffee', 'layers', 'package', 'sun', 'disc').
+        
+        Return ONLY a valid JSON object matching the enforced schema.
+        """
+
+        gemini_payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt_text},
+                        {
+                            "file_data": {
+                                "file_uri": direct_video_link
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": { "type": "STRING", "description": "Catchy title for the DIY project" },
+                        "description": { "type": "STRING", "description": "2-3 sentence overview of the project" },
+                        "difficulty": { "type": "STRING", "description": "e.g. BEGINNER, INTERMEDIATE, or ADVANCED" },
+                        "estimatedTime": { "type": "STRING", "description": "e.g. 45 MINS, 2 HOURS, 1 DAY" },
+                        "materials": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "id": { "type": "STRING" },
+                                    "name": { "type": "STRING", "description": "Short name of material, e.g., Glass jar" },
+                                    "icon": { "type": "STRING", "description": "Feather icon name" }
+                                },
+                                "required": ["id", "name", "icon"]
+                            }
+                        },
+                        "steps": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "id": { "type": "STRING" },
+                                    "title": { "type": "STRING", "description": "Short step title, e.g. Make the Cut" },
+                                    "description": { "type": "STRING", "description": "Detailed explanation for this step" }
+                                },
+                                "required": ["id", "title", "description"]
+                            }
+                        }
+                    },
+                    "required": ["title", "description", "difficulty", "estimatedTime", "materials", "steps"]
+                }
+            }
+        }
+
+        gemini_response = requests.post(
+            gemini_endpoint,
+            headers={"Content-Type": "application/json"},
+            json=gemini_payload,
+            timeout=45
+        )
+        gemini_response.raise_for_status()
+        gemini_data = gemini_response.json()
+        
+        # 4. Extract and parse response
+        try:
+            raw_text = gemini_data['candidates'][0]['content']['parts'][0]['text'].strip()
+            
+            if raw_text.startswith('```json'):
+                raw_text = raw_text[7:]
+            elif raw_text.startswith('```'):
+                raw_text = raw_text[3:]
+            if raw_text.endswith('```'):
+                raw_text = raw_text[:-3]
+                
+            project_data = json.loads(raw_text.strip())
+            
+            # Inject thumbnail from SocialFetch as heroImageUrl
+            project_data['heroImageUrl'] = thumbnail_url
+            
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            return jsonify({
+                "error": "Failed to parse the DIY project data from Gemini",
+                "details": str(e),
+                "raw_gemini_output": gemini_data
+            }), 500
+
+        # 5. Return payload directly ready for React Native screen
+        return jsonify({
+            "status": "success",
+            "project": project_data
+        }), 200
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": f"Failed to generate content from Gemini: {str(e)}",
+            "gemini_raw_error": gemini_response.text if 'gemini_response' in locals() else None
+        }), 502
