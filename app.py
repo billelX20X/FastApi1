@@ -20,16 +20,14 @@ def test():
     return jsonify({"message": "API is working"}), 200
 
 ##################################################################################################
-@app.route('/create_lib_card_from_social_media_url', methods=['POST'])
-def create_lib_card():
-    # 1. Get the original URL from the incoming request
+@app.route('/fetch_social_media_video', methods=['POST'])
+def fetch_social_media_video():
     data = request.get_json()
     if not data or 'url' not in data:
         return jsonify({"error": "Please provide a 'url' in the JSON body"}), 400
     
     original_url = data['url']
 
-    # 2. Call SocialFetch API to get the direct video link
     try:
         socialfetch_url = f"https://api.socialfetch.dev/v1/tiktok/videos?url={original_url}"
         sf_response = requests.get(
@@ -43,6 +41,7 @@ def create_lib_card():
         media_info = sf_data.get('data', {}).get('media', {})
         thumbnail_url = media_info.get('thumbnailUrl', '') 
         direct_video_link = media_info.get('downloadWithoutWatermarkUrl') or media_info.get('downloadUrl')
+        video_metadata = sf_data.get('data', {}).get('video', {})
         
         if not direct_video_link:
             return jsonify({
@@ -50,18 +49,41 @@ def create_lib_card():
                 "socialfetch_raw": sf_data
             }), 500
 
+        # Return everything the frontend needs to trigger step 2
+        return jsonify({
+            "status": "success",
+            "direct_video_link": direct_video_link,
+            "thumbnail_url": thumbnail_url,
+            "video_id": video_metadata.get('id'),
+            "caption": video_metadata.get('caption')
+        }), 200
+
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Failed to fetch data from SocialFetch: {str(e)}"}), 502
 
-    # 3. Download the video from SocialFetch temporarily into memory
+##################################################################################################
+@app.route('/generate_plant_card_from_video', methods=['POST'])
+def generate_plant_card_from_video():
+    data = request.get_json()
+    
+    # Require the links from the frontend
+    if not data or 'direct_video_link' not in data or 'thumbnail_url' not in data:
+        return jsonify({"error": "Please provide 'direct_video_link' and 'thumbnail_url'"}), 400
+        
+    direct_video_link = data['direct_video_link']
+    thumbnail_url = data['thumbnail_url']
+    video_id = data.get('video_id', 'unknown')
+    caption = data.get('caption', '')
+
+    # 1. Download the video into memory
     try:
         video_download_res = requests.get(direct_video_link, timeout=30)
         video_download_res.raise_for_status()
         video_bytes = video_download_res.content
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed to download video from link: {str(e)}"}), 502
+        return jsonify({"error": f"Failed to download video: {str(e)}"}), 502
 
-    # 4. Upload the video to the Gemini File API
+    # 2. Upload the video to the Gemini File API
     try:
         upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={GEMINI_API_KEY}"
         upload_headers = {
@@ -70,44 +92,47 @@ def create_lib_card():
             "Content-Type": "video/mp4"
         }
         
-        upload_res = requests.post(
-            upload_url, 
-            headers=upload_headers, 
-            data=video_bytes, 
-            timeout=60
-        )
+        upload_res = requests.post(upload_url, headers=upload_headers, data=video_bytes, timeout=60)
         upload_res.raise_for_status()
         upload_data = upload_res.json()
         
         gemini_file_uri = upload_data.get("file", {}).get("uri")
-        gemini_file_name = upload_data.get("file", {}).get("name") # e.g., "files/xyz123"
+        gemini_file_name = upload_data.get("file", {}).get("name")
 
         if not gemini_file_uri or not gemini_file_name:
-            return jsonify({"error": "Failed to extract file URI from Gemini upload."}), 500
+            return jsonify({"error": "Failed to extract file URI from Gemini."}), 500
 
     except requests.exceptions.RequestException as e:
-         return jsonify({"error": f"Failed to upload video to Gemini: {str(e)}", "raw": upload_res.text}), 502
+         return jsonify({"error": f"Failed to upload to Gemini: {str(e)}"}), 502
 
-    # 5. Poll the Gemini API until the video finishes processing (State becomes ACTIVE)
+    # 3. Poll the Gemini API until ACTIVE (with safety limits)
     try:
-        while True:
+        max_attempts = 45 
+        attempts = 0
+        
+        while attempts < max_attempts:
             status_url = f"https://generativelanguage.googleapis.com/v1beta/{gemini_file_name}?key={GEMINI_API_KEY}"
             status_res = requests.get(status_url, timeout=10)
             status_res.raise_for_status()
             
             file_state = status_res.json().get("file", {}).get("state")
+            print(f"Poll {attempts + 1}: Gemini state is {file_state}", flush=True) 
+            
             if file_state == "ACTIVE":
                 break
             elif file_state == "FAILED":
-                return jsonify({"error": "Gemini failed to process the uploaded video."}), 500
+                return jsonify({"error": "Gemini failed to process the video."}), 500
             
-            # Wait 2 seconds before checking again
             time.sleep(2)
+            attempts += 1
+            
+        if attempts == max_attempts:
+            return jsonify({"error": "Gemini took too long to process the video."}), 504
             
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed while checking Gemini video status: {str(e)}"}), 502
+        return jsonify({"error": f"Failed checking video status: {str(e)}"}), 502
 
-    # 6. Pass the OFFICIAL Gemini file URI to the Gemini generateContent API
+    # 4. Generate Content with Gemini 1.5 Flash
     try:
         gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         
@@ -144,71 +169,40 @@ def create_lib_card():
 
         gemini_payload = {
             "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": prompt_text
-                        },
-                        {
-                            "file_data": {
-                                "file_uri": gemini_file_uri # Using the valid URI
-                            }
-                        }
-                    ]
-                }
+                {"parts": [{"text": prompt_text}, {"file_data": {"file_uri": gemini_file_uri}}]}
             ],
-            "generationConfig": {
-                "responseMimeType": "application/json"
-            }
+            "generationConfig": {"responseMimeType": "application/json"}
         }
 
-        gemini_response = requests.post(
-            gemini_endpoint,
-            headers={"Content-Type": "application/json"},
-            json=gemini_payload,
-            timeout=30
-        )
+        gemini_response = requests.post(gemini_endpoint, headers={"Content-Type": "application/json"}, json=gemini_payload, timeout=45)
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
         
-        # 7. Extract and clean the plant JSON string from Gemini's response
+        # 5. Extract and clean JSON
         try:
-            raw_text = gemini_data['candidates'][0]['content']['parts'][0]['text']
-            
-            raw_text = raw_text.strip()
-            if raw_text.startswith('```json'):
-                raw_text = raw_text[7:]
-            elif raw_text.startswith('```'):
-                raw_text = raw_text[3:]
-            if raw_text.endswith('```'):
-                raw_text = raw_text[:-3]
+            raw_text = gemini_data['candidates'][0]['content']['parts'][0]['text'].strip()
+            if raw_text.startswith('```json'): raw_text = raw_text[7:]
+            elif raw_text.startswith('```'): raw_text = raw_text[3:]
+            if raw_text.endswith('```'): raw_text = raw_text[:-3]
                 
             plant_data = json.loads(raw_text.strip())
             
         except (KeyError, IndexError, json.JSONDecodeError) as e:
-            return jsonify({
-                "error": "Failed to parse the plant data from Gemini",
-                "details": str(e),
-                "raw_gemini_output": gemini_data
-            }), 500
+            return jsonify({"error": "Failed to parse plant data from Gemini", "raw": gemini_data}), 500
 
-        # 8. Return the final, clean response back to the client
-        video_metadata = sf_data.get('data', {}).get('video', {})
-        
+        # 6. Return Final Payload
         return jsonify({
             "status": "success",
-            "video_id": video_metadata.get('id'),
-            "caption": video_metadata.get('caption'),
+            "video_id": video_id,
+            "caption": caption,
             "plant_data": plant_data
         }), 200
 
     except requests.exceptions.RequestException as e:
-        return jsonify({
-            "error": f"Failed to generate content from Gemini: {str(e)}",
-            "gemini_raw_error": gemini_response.text if 'gemini_response' in locals() else None
-        }), 502
+        return jsonify({"error": f"Failed generation from Gemini: {str(e)}"}), 502
 
 ##################################################################################################
+
 
 
 @app.route('/create_lib_card_from_image_file', methods=['POST'])
