@@ -77,7 +77,7 @@ def generate_plant_card_from_video():
 
     # 1. Download the video into memory
     try:
-        video_download_res = requests.get(direct_video_link, timeout=30)
+        video_download_res = requests.get(direct_video_link, timeout=180)
         video_download_res.raise_for_status()
         video_bytes = video_download_res.content
     except requests.exceptions.RequestException as e:
