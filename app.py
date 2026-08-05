@@ -139,7 +139,7 @@ def generate_plant_card_from_video():
 
     # 4. Generate Content with Gemini 1.5 Flash
     try:
-        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
         
         prompt_text = f"""
         Watch this video about a plant and extract the information discussed. 
