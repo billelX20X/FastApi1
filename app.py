@@ -4,6 +4,7 @@ import os
 import json
 from dotenv import load_dotenv
 import base64
+import time  # <--- Add this new import
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -39,13 +40,8 @@ def create_lib_card():
         sf_response.raise_for_status()
         sf_data = sf_response.json()
         
-        # Parse based on the provided SocialFetch structure
         media_info = sf_data.get('data', {}).get('media', {})
-        
-        # Extract the thumbnail URL here!
         thumbnail_url = media_info.get('thumbnailUrl', '') 
-        
-        # Try unwatermarked first, fallback to standard downloadUrl
         direct_video_link = media_info.get('downloadWithoutWatermarkUrl') or media_info.get('downloadUrl')
         
         if not direct_video_link:
@@ -57,12 +53,64 @@ def create_lib_card():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Failed to fetch data from SocialFetch: {str(e)}"}), 502
 
-    # 3. Pass the direct video link to the Gemini API
+    # 3. Download the video from SocialFetch temporarily into memory
     try:
-        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
+        video_download_res = requests.get(direct_video_link, timeout=30)
+        video_download_res.raise_for_status()
+        video_bytes = video_download_res.content
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Failed to download video from link: {str(e)}"}), 502
+
+    # 4. Upload the video to the Gemini File API
+    try:
+        upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={GEMINI_API_KEY}"
+        upload_headers = {
+            "X-Goog-Upload-Protocol": "raw",
+            "X-Goog-Upload-File-Name": "social_video.mp4",
+            "Content-Type": "video/mp4"
+        }
         
-        # We use an f-string to inject the thumbnail_url. 
-        # The JSON curly brackets are doubled {{ }} so Python ignores them.
+        upload_res = requests.post(
+            upload_url, 
+            headers=upload_headers, 
+            data=video_bytes, 
+            timeout=60
+        )
+        upload_res.raise_for_status()
+        upload_data = upload_res.json()
+        
+        gemini_file_uri = upload_data.get("file", {}).get("uri")
+        gemini_file_name = upload_data.get("file", {}).get("name") # e.g., "files/xyz123"
+
+        if not gemini_file_uri or not gemini_file_name:
+            return jsonify({"error": "Failed to extract file URI from Gemini upload."}), 500
+
+    except requests.exceptions.RequestException as e:
+         return jsonify({"error": f"Failed to upload video to Gemini: {str(e)}", "raw": upload_res.text}), 502
+
+    # 5. Poll the Gemini API until the video finishes processing (State becomes ACTIVE)
+    try:
+        while True:
+            status_url = f"https://generativelanguage.googleapis.com/v1beta/{gemini_file_name}?key={GEMINI_API_KEY}"
+            status_res = requests.get(status_url, timeout=10)
+            status_res.raise_for_status()
+            
+            file_state = status_res.json().get("file", {}).get("state")
+            if file_state == "ACTIVE":
+                break
+            elif file_state == "FAILED":
+                return jsonify({"error": "Gemini failed to process the uploaded video."}), 500
+            
+            # Wait 2 seconds before checking again
+            time.sleep(2)
+            
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Failed while checking Gemini video status: {str(e)}"}), 502
+
+    # 6. Pass the OFFICIAL Gemini file URI to the Gemini generateContent API
+    try:
+        gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        
         prompt_text = f"""
         Watch this video about a plant and extract the information discussed. 
         Return ONLY a valid JSON object matching this exact structure.
@@ -103,7 +151,7 @@ def create_lib_card():
                         },
                         {
                             "file_data": {
-                                "file_uri": direct_video_link
+                                "file_uri": gemini_file_uri # Using the valid URI
                             }
                         }
                     ]
@@ -123,11 +171,10 @@ def create_lib_card():
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
         
-        # 4. Extract and clean the plant JSON string from Gemini's response
+        # 7. Extract and clean the plant JSON string from Gemini's response
         try:
             raw_text = gemini_data['candidates'][0]['content']['parts'][0]['text']
             
-            # Gemini sometimes wraps JSON in markdown code blocks. Strip them if they exist.
             raw_text = raw_text.strip()
             if raw_text.startswith('```json'):
                 raw_text = raw_text[7:]
@@ -136,7 +183,6 @@ def create_lib_card():
             if raw_text.endswith('```'):
                 raw_text = raw_text[:-3]
                 
-            # Parse the string back into a Python dictionary
             plant_data = json.loads(raw_text.strip())
             
         except (KeyError, IndexError, json.JSONDecodeError) as e:
@@ -146,7 +192,7 @@ def create_lib_card():
                 "raw_gemini_output": gemini_data
             }), 500
 
-        # 5. Return the final, clean response back to the client
+        # 8. Return the final, clean response back to the client
         video_metadata = sf_data.get('data', {}).get('video', {})
         
         return jsonify({
@@ -161,7 +207,6 @@ def create_lib_card():
             "error": f"Failed to generate content from Gemini: {str(e)}",
             "gemini_raw_error": gemini_response.text if 'gemini_response' in locals() else None
         }), 502
-
 
 ##################################################################################################
 
