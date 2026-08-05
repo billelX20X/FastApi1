@@ -107,7 +107,7 @@ def generate_plant_card_from_video():
 
     # 3. Poll the Gemini API until ACTIVE (with safety limits)
     try:
-        max_attempts = 45 
+        max_attempts = 180 
         attempts = 0
         
         while attempts < max_attempts:
@@ -179,7 +179,7 @@ def generate_plant_card_from_video():
             "generationConfig": {"responseMimeType": "application/json"}
         }
 
-        gemini_response = requests.post(gemini_endpoint, headers={"Content-Type": "application/json"}, json=gemini_payload, timeout=45)
+        gemini_response = requests.post(gemini_endpoint, headers={"Content-Type": "application/json"}, json=gemini_payload, timeout=180)
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
         
@@ -539,7 +539,7 @@ def generate_recovery_plan():
             gemini_endpoint,
             headers={"Content-Type": "application/json"},
             json=gemini_payload,
-            timeout=45
+            timeout=180
         )
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
