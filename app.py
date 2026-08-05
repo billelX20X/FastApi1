@@ -115,13 +115,18 @@ def generate_plant_card_from_video():
             status_res = requests.get(status_url, timeout=10)
             status_res.raise_for_status()
             
-            file_state = status_res.json().get("file", {}).get("state")
+            status_data = status_res.json()
+            
+            # FIX: The GET endpoint returns the file object directly, not wrapped in a "file" key
+            file_state = status_data.get("state")
+            
+            # Print the raw data to the Render logs just in case!
             print(f"Poll {attempts + 1}: Gemini state is {file_state}", flush=True) 
             
             if file_state == "ACTIVE":
                 break
             elif file_state == "FAILED":
-                return jsonify({"error": "Gemini failed to process the video."}), 500
+                return jsonify({"error": "Gemini failed to process the video.", "raw_status": status_data}), 500
             
             time.sleep(2)
             attempts += 1
