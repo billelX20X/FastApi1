@@ -33,7 +33,7 @@ def fetch_social_media_video():
         sf_response = requests.get(
             socialfetch_url,
             headers={"x-api-key": SOCIALFETCH_API_KEY},
-            timeout=10
+            timeout=20
         )
         sf_response.raise_for_status()
         sf_data = sf_response.json()
@@ -92,7 +92,7 @@ def generate_plant_card_from_video():
             "Content-Type": "video/mp4"
         }
         
-        upload_res = requests.post(upload_url, headers=upload_headers, data=video_bytes, timeout=60)
+        upload_res = requests.post(upload_url, headers=upload_headers, data=video_bytes, timeout=180)
         upload_res.raise_for_status()
         upload_data = upload_res.json()
         
@@ -112,7 +112,7 @@ def generate_plant_card_from_video():
         
         while attempts < max_attempts:
             status_url = f"https://generativelanguage.googleapis.com/v1beta/{gemini_file_name}?key={GEMINI_API_KEY}"
-            status_res = requests.get(status_url, timeout=10)
+            status_res = requests.get(status_url, timeout=20)
             status_res.raise_for_status()
             
             status_data = status_res.json()
@@ -289,7 +289,7 @@ def create_lib_card_image():
             gemini_endpoint,
             headers={"Content-Type": "application/json"},
             json=gemini_payload,
-            timeout=30
+            timeout=180
         )
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
@@ -401,7 +401,7 @@ def check_plant_status():
             gemini_endpoint,
             headers={"Content-Type": "application/json"},
             json=gemini_payload,
-            timeout=30
+            timeout=180
         )
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
@@ -596,7 +596,7 @@ def extract_diy_project():
         sf_response = requests.get(
             socialfetch_url,
             headers={"x-api-key": SOCIALFETCH_API_KEY},
-            timeout=10
+            timeout=20
         )
         sf_response.raise_for_status()
         sf_data = sf_response.json()
