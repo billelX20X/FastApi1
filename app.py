@@ -670,7 +670,7 @@ def extract_diy_project():
             gemini_endpoint,
             headers={"Content-Type": "application/json"},
             json=gemini_payload,
-            timeout=180
+            timeout=280
         )
         gemini_response.raise_for_status()
         gemini_data = gemini_response.json()
